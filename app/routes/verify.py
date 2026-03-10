@@ -1,6 +1,7 @@
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from app.services.antispoof_service import liveness_detector
+from app.services.document_auth_service import check_document_authenticity
 from app.services.face_service import compare_faces, extract_face_encoding
 from app.utils.image_utils import load_image_from_bytes, validate_image
 
@@ -27,6 +28,11 @@ async def verify_faces(
     error = validate_image(selfie.content_type, len(selfie_bytes))
     if error:
         raise HTTPException(status_code=422, detail=f"Selfie image: {error}")
+
+    # Validate document authenticity (not a photo, not fake/edited)
+    auth = check_document_authenticity(doc_bytes)
+    if not auth["is_authentic"]:
+        raise HTTPException(status_code=400, detail=auth["reason"])
 
     # Load images as numpy arrays
     doc_image = load_image_from_bytes(doc_bytes)

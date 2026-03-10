@@ -1,0 +1,7 @@
+# Requirements for training the document fraud detector
+# Install with: pip install -r requirements-train.txt
+#
+# These are NOT needed to run the API — only for training.
+
+torch>=2.2.0
+torchvision>=0.17.0

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.services.antispoof_service import liveness_detector
+from app.services.document_auth_service import check_document_authenticity
 from app.services.face_service import compare_faces, extract_face_encoding
 from app.services.session_store import session_store
 from app.utils.image_utils import load_image_from_bytes, validate_image
@@ -18,6 +19,10 @@ async def upload_document(
     error = validate_image(document.content_type, len(doc_bytes))
     if error:
         raise HTTPException(status_code=422, detail=f"Document image: {error}")
+
+    auth = check_document_authenticity(doc_bytes)
+    if not auth["is_authentic"]:
+        raise HTTPException(status_code=400, detail=auth["reason"])
 
     doc_image = load_image_from_bytes(doc_bytes)
     doc_encoding, doc_face_count, _ = extract_face_encoding(doc_image)
