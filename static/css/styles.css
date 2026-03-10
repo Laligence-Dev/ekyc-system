@@ -1,0 +1,575 @@
+/* ===== Reset & Base ===== */
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+        Ubuntu, Cantarell, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 2rem 1rem;
+}
+
+.container {
+    width: 100%;
+    max-width: 560px;
+}
+
+.app-title {
+    text-align: center;
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin-bottom: 2rem;
+    color: #f8fafc;
+}
+
+/* ===== Step Indicator ===== */
+.step-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin-bottom: 2.5rem;
+}
+
+.step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.step-number {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #1e293b;
+    border: 2px solid #334155;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: #64748b;
+    transition: all 0.3s ease;
+}
+
+.step.active .step-number {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: #fff;
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+.step.completed .step-number {
+    background: #22c55e;
+    border-color: #22c55e;
+    color: #fff;
+}
+
+.step-label {
+    font-size: 0.75rem;
+    color: #64748b;
+    font-weight: 500;
+    transition: color 0.3s;
+}
+
+.step.active .step-label {
+    color: #3b82f6;
+}
+
+.step.completed .step-label {
+    color: #22c55e;
+}
+
+.step-connector {
+    width: 60px;
+    height: 2px;
+    background: #334155;
+    margin: 0 0.5rem;
+    margin-bottom: 1.5rem;
+    transition: background 0.3s;
+}
+
+.step-connector.active {
+    background: #22c55e;
+}
+
+/* ===== Step Sections ===== */
+.step-section {
+    display: none;
+    animation: fadeIn 0.4s ease;
+}
+
+.step-section.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.step-section h2 {
+    text-align: center;
+    font-size: 1.25rem;
+    margin-bottom: 0.5rem;
+    color: #f1f5f9;
+}
+
+.subtitle {
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.875rem;
+    margin-bottom: 1.5rem;
+}
+
+/* ===== Drop Zone ===== */
+.drop-zone {
+    border: 2px dashed #334155;
+    border-radius: 16px;
+    padding: 3rem 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: #1e293b;
+}
+
+.drop-zone:hover,
+.drop-zone.drag-over {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.05);
+}
+
+.upload-icon {
+    width: 48px;
+    height: 48px;
+    color: #64748b;
+    margin-bottom: 1rem;
+}
+
+.drop-zone p {
+    color: #94a3b8;
+    margin-bottom: 0.5rem;
+}
+
+.or-divider {
+    font-size: 0.75rem;
+    color: #475569 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.btn-browse {
+    display: inline-block;
+    padding: 0.5rem 1.25rem;
+    background: #1e293b;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    color: #e2e8f0;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 0.25rem;
+}
+
+.btn-browse:hover {
+    background: #334155;
+    border-color: #3b82f6;
+}
+
+.hint {
+    font-size: 0.75rem;
+    color: #475569 !important;
+    margin-top: 0.75rem;
+}
+
+/* ===== Preview ===== */
+.preview-container {
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #1e293b;
+    border: 2px solid #334155;
+}
+
+.preview-container img {
+    width: 100%;
+    max-height: 320px;
+    object-fit: contain;
+    display: block;
+    padding: 1rem;
+}
+
+.btn-remove {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(239, 68, 68, 0.9);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s;
+}
+
+.btn-remove:hover {
+    transform: scale(1.1);
+}
+
+.btn-remove svg {
+    width: 16px;
+    height: 16px;
+    color: #fff;
+}
+
+/* ===== Buttons ===== */
+.btn-primary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.875rem;
+    margin-top: 1.5rem;
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: #2563eb;
+    transform: translateY(-1px);
+}
+
+.btn-primary:disabled {
+    background: #1e293b;
+    color: #475569;
+    cursor: not-allowed;
+}
+
+.btn-loader {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ===== Error ===== */
+.error-message {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 8px;
+    color: #fca5a5;
+    font-size: 0.875rem;
+    text-align: center;
+}
+
+/* ===== Camera ===== */
+.camera-wrapper {
+    display: flex;
+    justify-content: center;
+}
+
+.camera-container {
+    position: relative;
+    width: 100%;
+    max-width: 480px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #000;
+    aspect-ratio: 4 / 3;
+}
+
+#webcam {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+}
+
+#capture-canvas {
+    display: none;
+}
+
+.camera-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.face-guide {
+    width: 200px;
+    height: 260px;
+    border: 3px dashed rgba(255, 255, 255, 0.5);
+    border-radius: 50%;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.25);
+    transition: border-color 0.3s;
+}
+
+.face-guide.detected {
+    border-color: #22c55e;
+    border-style: solid;
+}
+
+.face-guide.no-face {
+    border-color: #f59e0b;
+}
+
+/* Status bar at bottom of camera */
+.status-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    font-size: 0.875rem;
+    color: #e2e8f0;
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #fbbf24;
+    animation: pulse 1.5s ease-in-out infinite;
+    flex-shrink: 0;
+}
+
+.status-dot.scanning {
+    background: #fbbf24;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+.status-dot.detected {
+    background: #22c55e;
+    animation: pulse 1s ease-in-out infinite;
+}
+
+.status-dot.no-face {
+    background: #f59e0b;
+    animation: none;
+}
+
+.status-dot.error {
+    background: #ef4444;
+    animation: none;
+}
+
+.status-dot.matched {
+    background: #22c55e;
+    animation: none;
+}
+
+@keyframes pulse {
+    0%,
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    50% {
+        transform: scale(1.5);
+        opacity: 0.5;
+    }
+}
+
+/* Capture button */
+.btn-capture {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 1rem;
+    margin-top: 1.5rem;
+    background: #16a34a;
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-capture:hover:not(:disabled) {
+    background: #15803d;
+    transform: translateY(-1px);
+}
+
+.btn-capture:disabled {
+    background: #1e293b;
+    color: #475569;
+    cursor: not-allowed;
+}
+
+.capture-circle {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.capture-circle::after {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border-radius: 50%;
+    background: #fff;
+}
+
+.btn-capture:disabled .capture-circle {
+    border-color: #475569;
+}
+
+.btn-capture:disabled .capture-circle::after {
+    background: #475569;
+}
+
+.btn-capture .btn-loader {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+/* ===== Result ===== */
+.result-card {
+    text-align: center;
+    padding: 2rem 1rem;
+    animation: fadeIn 0.5s ease;
+}
+
+.result-icon {
+    margin: 0 auto 1.5rem;
+    width: 80px;
+    height: 80px;
+}
+
+.result-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+/* Success checkmark animation */
+.checkmark-circle {
+    stroke: #22c55e;
+    stroke-width: 2;
+    stroke-dasharray: 166;
+    stroke-dashoffset: 166;
+    animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+
+.checkmark-check {
+    stroke: #22c55e;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 48;
+    stroke-dashoffset: 48;
+    animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.5s forwards;
+}
+
+@keyframes stroke {
+    100% {
+        stroke-dashoffset: 0;
+    }
+}
+
+.result-card h2 {
+    font-size: 1.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.result-card.success h2 {
+    color: #22c55e;
+}
+
+.result-card.failure h2 {
+    color: #ef4444;
+}
+
+.result-detail {
+    color: #94a3b8;
+    font-size: 0.9375rem;
+    margin-bottom: 0.5rem;
+}
+
+.result-detail strong {
+    color: #e2e8f0;
+}
+
+/* ===== Utilities ===== */
+.hidden {
+    display: none !important;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 480px) {
+    body {
+        padding: 1rem 0.75rem;
+    }
+
+    .container {
+        max-width: 100%;
+    }
+
+    .step-connector {
+        width: 32px;
+    }
+
+    .drop-zone {
+        padding: 2rem 1rem;
+    }
+
+    .face-guide {
+        width: 160px;
+        height: 210px;
+    }
+}

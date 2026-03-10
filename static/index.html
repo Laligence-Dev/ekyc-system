@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Verification</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1 class="app-title">Face Verification</h1>
+
+        <!-- Step Indicator -->
+        <div class="step-indicator">
+            <div class="step active" data-step="1">
+                <div class="step-number">1</div>
+                <div class="step-label">Upload ID</div>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step" data-step="2">
+                <div class="step-number">2</div>
+                <div class="step-label">Verify</div>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step" data-step="3">
+                <div class="step-number">3</div>
+                <div class="step-label">Result</div>
+            </div>
+        </div>
+
+        <!-- Step 1: Upload Document -->
+        <section id="step-upload" class="step-section active">
+            <h2>Upload Your Government ID</h2>
+            <p class="subtitle">Upload a clear photo of your passport or government-issued ID card.</p>
+
+            <div id="drop-zone" class="drop-zone">
+                <div class="drop-zone-content">
+                    <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <p>Drag & drop your ID here</p>
+                    <p class="or-divider">or</p>
+                    <label for="file-input" class="btn-browse">Browse Files</label>
+                    <input type="file" id="file-input" accept="image/jpeg,image/png" hidden>
+                    <p class="hint">Accepted: JPEG, PNG (max 10MB)</p>
+                </div>
+            </div>
+
+            <div id="preview-container" class="preview-container hidden">
+                <img id="doc-preview" alt="Document preview">
+                <button id="remove-doc" class="btn-remove" title="Remove">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+
+            <button id="btn-upload" class="btn-primary" disabled>
+                <span class="btn-text">Upload & Continue</span>
+                <span class="btn-loader hidden"></span>
+            </button>
+
+            <div id="upload-error" class="error-message hidden"></div>
+        </section>
+
+        <!-- Step 2: Camera Verification -->
+        <section id="step-camera" class="step-section hidden">
+            <h2>Face Verification</h2>
+            <p class="subtitle">Position your face within the guide, then take a selfie.</p>
+
+            <div class="camera-wrapper">
+                <div class="camera-container">
+                    <video id="webcam" autoplay playsinline muted></video>
+                    <canvas id="capture-canvas"></canvas>
+                    <div class="camera-overlay">
+                        <div class="face-guide"></div>
+                    </div>
+                    <div id="status-bar" class="status-bar">
+                        <span id="status-dot" class="status-dot"></span>
+                        <span id="status-text">Initializing camera...</span>
+                    </div>
+                </div>
+            </div>
+
+            <button id="btn-capture" class="btn-capture" disabled>
+                <span class="capture-circle"></span>
+                <span class="btn-capture-text">Take Selfie</span>
+            </button>
+            <div id="camera-error" class="error-message hidden"></div>
+        </section>
+
+        <!-- Step 3: Result -->
+        <section id="step-result" class="step-section hidden">
+            <!-- Success -->
+            <div id="result-success" class="result-card success hidden">
+                <div class="result-icon success-icon">
+                    <svg viewBox="0 0 52 52">
+                        <circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/>
+                        <path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                    </svg>
+                </div>
+                <h2>Verification Passed</h2>
+                <p class="result-detail">Identity confirmed with <strong id="confidence-score"></strong> confidence</p>
+                <button id="btn-done" class="btn-primary" onclick="location.reload()">Start Over</button>
+            </div>
+
+            <!-- Failure -->
+            <div id="result-failure" class="result-card failure hidden">
+                <div class="result-icon failure-icon">
+                    <svg viewBox="0 0 52 52">
+                        <circle cx="26" cy="26" r="25" fill="none" stroke="#ef4444" stroke-width="2"/>
+                        <line x1="16" y1="16" x2="36" y2="36" stroke="#ef4444" stroke-width="2"/>
+                        <line x1="36" y1="16" x2="16" y2="36" stroke="#ef4444" stroke-width="2"/>
+                    </svg>
+                </div>
+                <h2>Verification Failed</h2>
+                <p id="failure-message" class="result-detail"></p>
+                <button id="btn-retry" class="btn-primary">Try Again</button>
+            </div>
+        </section>
+    </div>
+
+    <script src="/js/app.js"></script>
+</body>
+</html>
