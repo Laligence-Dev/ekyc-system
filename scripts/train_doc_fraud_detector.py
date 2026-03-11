@@ -201,7 +201,9 @@ def generate_fake_documents(
     os.makedirs(output_dir, exist_ok=True)
     donor_images = [img for p in donor_paths if (img := _load_rgb(p)) is not None]
 
-    techniques = [fake_clone_stamp, fake_region_splice, fake_face_swap]
+    # fake_face_swap requires face detection on every image (very slow on CPU).
+    # Use only fast techniques (clone_stamp + region_splice) during generation.
+    techniques = [fake_clone_stamp, fake_region_splice]
     generated = 0
     attempts = 0
     max_attempts = n_samples * 5
@@ -431,23 +433,30 @@ def main():
 
     n_fake = max(1, int(len(real_paths) * args.fake_ratio))
     fake_dir = os.path.join(args.output, "generated_fakes")
-    print(f"Generating {n_fake} fake document samples …")
-    actual = generate_fake_documents(real_paths, donor_paths, fake_dir, n_fake)
-    print(f"Generated {actual} fake samples → {fake_dir}")
+    existing_fakes = list(Path(fake_dir).glob("fake_*.jpg")) if os.path.isdir(fake_dir) else []
+    if len(existing_fakes) >= n_fake:
+        print(f"Skipping fake generation — {len(existing_fakes)} fakes already exist in {fake_dir}")
+    else:
+        print(f"Generating {n_fake} fake document samples …")
+        actual = generate_fake_documents(real_paths, donor_paths, fake_dir, n_fake)
+        print(f"Generated {actual} fake samples → {fake_dir}")
 
     # ── 2. build datasets ──
     train_ds, val_ds = build_datasets(args.real_docs, args.photos, fake_dir)
 
     train_loader = DataLoader(
-        train_ds, batch_size=args.batch_size, shuffle=True, num_workers=2, pin_memory=True
+        train_ds, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=False
     )
     val_loader = DataLoader(
-        val_ds, batch_size=args.batch_size, shuffle=False, num_workers=2, pin_memory=True
+        val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0, pin_memory=False
     )
 
     # ── 3. build & train model ──
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     print(f"Device: {device}")
+
+    # Limit CPU threads so the system stays responsive
+    torch.set_num_threads(2)
 
     model = build_model(num_classes=len(CLASSES)).to(device)
     model = train(model, train_loader, val_loader, args.epochs, args.lr, device, args.output)
