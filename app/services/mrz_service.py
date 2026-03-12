@@ -12,18 +12,23 @@ Returns parsed fields and validates:
 import io
 from datetime import date, datetime
 
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 
 def _preprocess_for_mrz(image_bytes: bytes) -> bytes:
     """
-    Upscale, sharpen and increase contrast so Tesseract reads MRZ characters
-    more accurately. Returns preprocessed JPEG bytes.
+    Optimise image for Tesseract MRZ reading:
+      1. Upscale to ≥2400px wide
+      2. Convert to grayscale
+      3. Unsharp mask for edge sharpness
+      4. High contrast boost
+      5. Binarize — Tesseract reads clean black/white best
+    Returns preprocessed PNG bytes (lossless for OCR).
     """
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = Image.open(io.BytesIO(image_bytes)).convert("L")  # grayscale
 
-    # Upscale to at least 1800px wide — MRZ lines need high resolution
-    min_width = 1800
+    # Upscale — MRZ characters need to be large for Tesseract
+    min_width = 2400
     if img.width < min_width:
         scale = min_width / img.width
         img = img.resize(
@@ -31,16 +36,27 @@ def _preprocess_for_mrz(image_bytes: bytes) -> bytes:
             Image.LANCZOS,
         )
 
-    # Sharpen twice for crisp character edges
-    img = img.filter(ImageFilter.SHARPEN)
-    img = img.filter(ImageFilter.SHARPEN)
+    # Unsharp mask: sharpens edges without adding noise
+    img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=180, threshold=3))
 
-    # Boost contrast so dark MRZ text separates clearly from background
-    img = ImageEnhance.Contrast(img).enhance(1.8)
+    # Boost contrast so MRZ band is dark-on-light
+    img = ImageEnhance.Contrast(img).enhance(2.5)
+
+    # Binarize: pixels below 160 → black, above → white
+    img = img.point(lambda p: 0 if p < 160 else 255, "L")
 
     out = io.BytesIO()
-    img.save(out, format="JPEG", quality=95)
+    img.save(out, format="PNG")  # lossless — no JPEG artifacts on text
     return out.getvalue()
+
+
+# Characters OCR commonly confuses in purely-numeric MRZ fields
+_DIGIT_FIXES = str.maketrans("OIlBSZGT", "01185267")
+
+
+def _fix_numeric(s: str) -> str:
+    """Replace letters that look like digits in numeric-only MRZ fields."""
+    return s.translate(_DIGIT_FIXES)
 
 
 def _parse_date(yymmdd: str) -> date | None:
@@ -110,10 +126,15 @@ def extract_mrz(image_bytes: bytes) -> dict:
     # passporteye valid_score: 100 = all checks pass, lower = some failed
     is_valid = valid_score >= 50
 
+    # Apply digit correction to numeric-only fields before parsing
+    raw_dob    = _fix_numeric(data.get("date_of_birth", ""))
+    raw_expiry = _fix_numeric(data.get("expiry_date", ""))
+    raw_number = _fix_numeric(data.get("number", ""))
+
     # Parse dates
-    dob     = _parse_date(data.get("date_of_birth", ""))
-    expiry  = _parse_date(data.get("expiry_date", ""))
-    today   = date.today()
+    dob    = _parse_date(raw_dob)
+    expiry = _parse_date(raw_expiry)
+    today  = date.today()
 
     expired = False
     expiry_str = ""
@@ -130,7 +151,7 @@ def extract_mrz(image_bytes: bytes) -> dict:
         "expired":         expired,
         "surname":         _clean(data.get("surname")),
         "given_names":     _clean(data.get("names")),
-        "document_number": _clean(data.get("number")),
+        "document_number": _clean(raw_number),
         "nationality":     _clean(data.get("nationality")),
         "date_of_birth":   dob_str,
         "expiry_date":     expiry_str,
