@@ -1,72 +1,34 @@
 """
 MRZ (Machine Readable Zone) Service
 =====================================
-Uses EasyOCR (deep-learning) to read MRZ text, with passporteye as fallback.
-
-Strategy:
-  1. Preprocess image (upscale, grayscale, high contrast)
-  2. Run EasyOCR on full image → filter for MRZ-like lines
-  3. Parse TD3 (passport, 2×44) or TD1 (ID card, 3×30) format
-  4. Fix common digit/letter OCR confusions in numeric fields
-  5. Validate check digits and expiry date
-  6. Fall back to passporteye if EasyOCR finds no MRZ lines
+Pipeline:
+  1. Detection  — OpenCV morphological ops find the MRZ strip
+                  (same idea as YOLO: locate a bounding box for the text zone)
+  2. OCR        — PaddleOCR reads the cropped MRZ region
+  3. Parser     — ICAO 9303 TD3 / TD1 field extraction + check-digit validation
+  4. Fallback   — passporteye if the pipeline above finds nothing
 """
 
 import io
 import re
 from datetime import date, datetime
 
+import cv2
 import numpy as np
-from PIL import Image, ImageEnhance, ImageFilter
-
-# ── Lazy EasyOCR reader (downloads ~100 MB model on first use) ────────────────
-
-_easyocr_reader = None
-
-
-def _get_reader():
-    global _easyocr_reader
-    if _easyocr_reader is None:
-        import easyocr
-        print("Loading EasyOCR model (first use — may take a moment)...")
-        _easyocr_reader = easyocr.Reader(["en"], gpu=False, verbose=False)
-        print("EasyOCR ready.")
-    return _easyocr_reader
-
-
-# ── Image preprocessing ───────────────────────────────────────────────────────
-
-def _preprocess(image_bytes: bytes) -> np.ndarray:
-    """Upscale + high-contrast grayscale for best OCR results."""
-    img = Image.open(io.BytesIO(image_bytes)).convert("L")
-
-    min_width = 2000
-    if img.width < min_width:
-        scale = min_width / img.width
-        img = img.resize(
-            (int(img.width * scale), int(img.height * scale)),
-            Image.LANCZOS,
-        )
-
-    img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=200, threshold=2))
-    img = ImageEnhance.Contrast(img).enhance(2.0)
-    return np.array(img)
-
+from PIL import Image
 
 # ── MRZ character helpers ─────────────────────────────────────────────────────
 
-_INVALID_CHARS = re.compile(r"[^A-Z0-9<]")
-_DIGIT_FIXES   = str.maketrans("OIlBSZGT", "01185267")
+_INVALID_RE  = re.compile(r"[^A-Z0-9<]")
+_DIGIT_FIXES = str.maketrans("OIlBSZGT", "01185267")
 
 
 def _normalize(text: str) -> str:
-    """Uppercase, map space/dot/dash → <, strip invalid chars."""
-    text = text.upper().replace(" ", "<").replace(".", "<").replace("-", "<")
-    return _INVALID_CHARS.sub("", text)
+    t = text.upper().replace(" ", "<").replace(".", "<").replace("-", "<")
+    return _INVALID_RE.sub("", t)
 
 
 def _fix_numeric(s: str) -> str:
-    """Fix letter→digit OCR errors in numeric-only MRZ fields."""
     return s.translate(_DIGIT_FIXES)
 
 
@@ -74,16 +36,15 @@ def _clean(s: str) -> str:
     return s.replace("<", " ").strip()
 
 
-# ── Check digit validation (ICAO 9303) ───────────────────────────────────────
+# ── Check digit (ICAO 9303) ───────────────────────────────────────────────────
 
-_WEIGHTS = [7, 3, 1]
-_CHARVAL = {c: i for i, c in enumerate("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")}
-_CHARVAL["<"] = 0
+_W = [7, 3, 1]
+_CV = {c: i for i, c in enumerate("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")}
+_CV["<"] = 0
 
 
 def _check_digit(s: str) -> str:
-    total = sum(_CHARVAL.get(c, 0) * _WEIGHTS[i % 3] for i, c in enumerate(s))
-    return str(total % 10)
+    return str(sum(_CV.get(c, 0) * _W[i % 3] for i, c in enumerate(s)) % 10)
 
 
 # ── Date helpers ──────────────────────────────────────────────────────────────
@@ -95,34 +56,131 @@ def _parse_date(yymmdd: str) -> date | None:
         return None
 
 
-# ── MRZ line detection ────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 1 — Detection: find the MRZ strip using morphological operations
+# ─────────────────────────────────────────────────────────────────────────────
 
-def _find_mrz_lines(ocr_results) -> list[str]:
+def _detect_mrz_crop(image_bytes: bytes) -> np.ndarray:
     """
-    Filter EasyOCR results for MRZ-like lines.
-    MRZ lines: ≥20 chars after normalisation, contain at least one '<'.
-    Returns lines sorted top-to-bottom.
+    Locate the MRZ zone in a passport / ID card image.
+
+    Strategy (works like a lightweight detector):
+      - Convert to grayscale and upscale to ≥ 1800px wide
+      - Search the bottom 45 % of the image (MRZ is always there)
+      - Binarise + horizontal dilation to merge text into solid bands
+      - Pick the two (TD3) or three (TD1) widest horizontal bands
+      - Return the tightly-cropped MRZ strip, padded a little for safety
+
+    Falls back to the bottom 30 % of the image if no bands found.
     """
-    candidates = []
-    for (bbox, text, _conf) in ocr_results:
-        norm = _normalize(text)
-        if len(norm) >= 20 and "<" in norm:
-            y = (bbox[0][1] + bbox[2][1]) / 2
-            candidates.append((y, norm))
+    img = Image.open(io.BytesIO(image_bytes)).convert("L")
 
-    candidates.sort(key=lambda x: x[0])
-    return [t for _, t in candidates]
+    # Upscale so small text is readable
+    if img.width < 1800:
+        scale = 1800 / img.width
+        img = img.resize((int(img.width * scale), int(img.height * scale)),
+                         Image.LANCZOS)
+
+    gray = np.array(img)
+    h, w = gray.shape
+
+    # Search only the bottom half — MRZ never appears in the top
+    search_start = int(h * 0.55)
+    roi = gray[search_start:, :]
+
+    # Binarise (Otsu) then invert so text is white
+    _, binary = cv2.threshold(roi, 0, 255,
+                              cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    # Dilate horizontally to merge characters in the same line into solid bars
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (int(w * 0.04), 1))
+    dilated = cv2.dilate(binary, kernel, iterations=2)
+
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL,
+                                   cv2.CHAIN_APPROX_SIMPLE)
+
+    # Keep bands that span ≥ 60 % of the width (MRZ lines are wide)
+    bands = []
+    for cnt in contours:
+        x, y, cw, ch = cv2.boundingRect(cnt)
+        if cw >= w * 0.60:
+            bands.append((y, ch))
+
+    if len(bands) >= 2:
+        bands.sort(key=lambda b: b[0])
+        y_top    = max(0, bands[0][0] - 10)
+        last     = bands[-1]
+        y_bottom = min(roi.shape[0], last[0] + last[1] + 10)
+        crop = roi[y_top:y_bottom, :]
+    else:
+        # Fallback: bottom 30 %
+        crop = gray[int(h * 0.70):, :]
+
+    return crop
 
 
-def _pad(line: str, length: int) -> str:
-    """Pad or truncate a line to exact length."""
-    return (line + "<" * length)[:length]
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 2 — OCR: PaddleOCR on the cropped strip
+# ─────────────────────────────────────────────────────────────────────────────
+
+_paddle_ocr = None
 
 
-# ── TD3 parser (passport, 2 lines × 44 chars) ────────────────────────────────
+def _get_paddle():
+    global _paddle_ocr
+    if _paddle_ocr is None:
+        from paddleocr import PaddleOCR
+        print("Loading PaddleOCR model (first use)…")
+        _paddle_ocr = PaddleOCR(
+            use_angle_cls=False,   # MRZ is always horizontal
+            lang="en",
+            show_log=False,
+        )
+        print("PaddleOCR ready.")
+    return _paddle_ocr
+
+
+def _ocr_mrz_strip(crop: np.ndarray) -> list[str]:
+    """
+    Run PaddleOCR on the MRZ strip.
+    Returns text lines sorted top-to-bottom, normalised to valid MRZ chars.
+    """
+    ocr = _get_paddle()
+
+    # Upscale the strip so characters are large enough for PaddleOCR
+    scale = max(1.0, 120 / crop.shape[0])   # aim for ~120 px tall strip
+    if scale > 1.0:
+        new_h = int(crop.shape[0] * scale)
+        new_w = int(crop.shape[1] * scale)
+        crop = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+
+    # PaddleOCR expects BGR or RGB; feed grayscale as-is (it handles it)
+    result = ocr.ocr(crop, cls=False)
+
+    lines = []
+    if result and result[0]:
+        # Sort by vertical centre
+        items = sorted(result[0], key=lambda r: (r[0][0][1] + r[0][2][1]) / 2)
+        for item in items:
+            text = item[1][0]
+            norm = _normalize(text)
+            if norm:
+                lines.append(norm)
+
+    print(f"[MRZ] PaddleOCR raw lines: {lines}")
+    return lines
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 3 — Parser: TD3 / TD1
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _pad(s: str, n: int) -> str:
+    return (s + "<" * n)[:n]
+
 
 def _parse_td3(lines: list[str]) -> dict | None:
-    # Find two consecutive lines that are each close to 44 chars
+    """Try to parse a TD3 (passport, 2 × 44 chars) MRZ."""
     for i in range(len(lines) - 1):
         l1 = _pad(lines[i],     44)
         l2 = _pad(lines[i + 1], 44)
@@ -130,46 +188,42 @@ def _parse_td3(lines: list[str]) -> dict | None:
         if l1[0] not in "PIV":
             continue
 
-        # Line 2 numeric fields
-        doc_num  = _fix_numeric(l2[0:9])
-        nat      = l2[10:13]
-        dob_raw  = _fix_numeric(l2[13:19])
-        sex      = l2[20] if l2[20] in "MF<" else "<"
-        exp_raw  = _fix_numeric(l2[21:27])
+        doc_num = _fix_numeric(l2[0:9])
+        nat     = l2[10:13]
+        dob_raw = _fix_numeric(l2[13:19])
+        sex     = l2[20] if l2[20] in "MF<" else "<"
+        exp_raw = _fix_numeric(l2[21:27])
 
-        # Check digits
-        valid_doc = _check_digit(doc_num) == l2[9]
-        valid_dob = _check_digit(dob_raw) == l2[19]
-        valid_exp = _check_digit(exp_raw) == l2[27]
-        valid_score = sum([valid_doc, valid_dob, valid_exp])
+        v_doc = _check_digit(doc_num) == l2[9]
+        v_dob = _check_digit(dob_raw) == l2[19]
+        v_exp = _check_digit(exp_raw) == l2[27]
+        score = sum([v_doc, v_dob, v_exp])
 
-        # Parse names from line 1
-        names_field = l1[5:44]
-        if "<<" in names_field:
-            surname_raw, given_raw = names_field.split("<<", 1)
+        names = l1[5:44]
+        if "<<" in names:
+            sn, gn = names.split("<<", 1)
         else:
-            surname_raw, given_raw = names_field, ""
+            sn, gn = names, ""
 
         return {
-            "format":          "TD3",
+            "format": "TD3",
             "document_type":   _clean(l1[0:2]),
             "country":         _clean(l1[2:5]),
-            "surname":         _clean(surname_raw),
-            "given_names":     _clean(given_raw),
+            "surname":         _clean(sn),
+            "given_names":     _clean(gn),
             "document_number": _clean(doc_num),
             "nationality":     _clean(nat),
             "date_of_birth":   dob_raw,
             "expiry_date":     exp_raw,
             "sex":             sex,
-            "valid_score":     valid_score,   # 0-3
-            "valid":           valid_score >= 2,
+            "valid_score":     score,
+            "valid":           score >= 2,
         }
     return None
 
 
-# ── TD1 parser (ID card, 3 lines × 30 chars) ─────────────────────────────────
-
 def _parse_td1(lines: list[str]) -> dict | None:
+    """Try to parse a TD1 (ID card, 3 × 30 chars) MRZ."""
     for i in range(len(lines) - 2):
         l1 = _pad(lines[i],     30)
         l2 = _pad(lines[i + 1], 30)
@@ -184,35 +238,37 @@ def _parse_td1(lines: list[str]) -> dict | None:
         exp_raw = _fix_numeric(l2[8:14])
         nat     = l2[15:18]
 
-        valid_doc = _check_digit(doc_num) == l1[14]
-        valid_dob = _check_digit(dob_raw) == l2[6]
-        valid_exp = _check_digit(exp_raw) == l2[14]
-        valid_score = sum([valid_doc, valid_dob, valid_exp])
+        v_doc = _check_digit(doc_num) == l1[14]
+        v_dob = _check_digit(dob_raw) == l2[6]
+        v_exp = _check_digit(exp_raw) == l2[14]
+        score = sum([v_doc, v_dob, v_exp])
 
-        names_field = l3
-        if "<<" in names_field:
-            surname_raw, given_raw = names_field.split("<<", 1)
+        names = l3
+        if "<<" in names:
+            sn, gn = names.split("<<", 1)
         else:
-            surname_raw, given_raw = names_field, ""
+            sn, gn = names, ""
 
         return {
-            "format":          "TD1",
+            "format": "TD1",
             "document_type":   _clean(l1[0:2]),
             "country":         _clean(l1[2:5]),
-            "surname":         _clean(surname_raw),
-            "given_names":     _clean(given_raw),
+            "surname":         _clean(sn),
+            "given_names":     _clean(gn),
             "document_number": _clean(doc_num),
             "nationality":     _clean(nat),
             "date_of_birth":   dob_raw,
             "expiry_date":     exp_raw,
             "sex":             sex,
-            "valid_score":     valid_score,
-            "valid":           valid_score >= 2,
+            "valid_score":     score,
+            "valid":           score >= 2,
         }
     return None
 
 
-# ── Passporteye fallback ──────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 4 — Fallback: passporteye
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _passporteye_fallback(image_bytes: bytes) -> dict | None:
     try:
@@ -232,40 +288,38 @@ def _passporteye_fallback(image_bytes: bytes) -> dict | None:
             "date_of_birth":   _fix_numeric(d.get("date_of_birth", "")),
             "expiry_date":     _fix_numeric(d.get("expiry_date", "")),
             "sex":             _clean(d.get("sex", "")),
-            "valid_score":     d.get("valid_score", 0),
+            "valid_score":     1 if d.get("valid_score", 0) >= 50 else 0,
             "valid":           d.get("valid_score", 0) >= 50,
         }
     except Exception:
         return None
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Public API
+# ─────────────────────────────────────────────────────────────────────────────
 
 def extract_mrz(image_bytes: bytes) -> dict:
     """
-    Extract and validate MRZ data from a document image.
-    Returns a normalised dict — see keys below.
+    Full pipeline: detect → OCR → parse → validate.
+    Returns a normalised result dict.
     """
     parsed = None
 
-    # ── 1. Try EasyOCR ──
     try:
-        reader  = _get_reader()
-        arr     = _preprocess(image_bytes)
-        results = reader.readtext(arr, detail=1, paragraph=False)
-        lines   = _find_mrz_lines(results)
-        parsed  = _parse_td3(lines) or _parse_td1(lines)
+        crop  = _detect_mrz_crop(image_bytes)
+        lines = _ocr_mrz_strip(crop)
+        parsed = _parse_td3(lines) or _parse_td1(lines)
     except Exception as e:
-        print(f"[MRZ] EasyOCR error: {e}")
+        print(f"[MRZ] Pipeline error: {e}")
 
-    # ── 2. Fall back to passporteye ──
     if parsed is None:
+        print("[MRZ] Main pipeline found nothing — trying passporteye fallback")
         parsed = _passporteye_fallback(image_bytes)
 
     if parsed is None:
         return {"found": False, "error": "No MRZ detected in the document image"}
 
-    # ── 3. Parse and validate dates ──
     dob    = _parse_date(parsed["date_of_birth"])
     expiry = _parse_date(parsed["expiry_date"])
     today  = date.today()
@@ -273,6 +327,8 @@ def extract_mrz(image_bytes: bytes) -> dict:
     expired    = bool(expiry and expiry < today)
     expiry_str = expiry.strftime("%Y-%m-%d") if expiry else ""
     dob_str    = dob.strftime("%Y-%m-%d")    if dob    else ""
+
+    print(f"[MRZ] Result ({parsed['format']}): {parsed['surname']} {parsed['given_names']} | DOB {dob_str} | Exp {expiry_str} | valid={parsed['valid']}")
 
     return {
         "found":           True,

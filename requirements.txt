@@ -11,3 +11,5 @@ onnxruntime>=1.19.0
 mediapipe>=0.10.0
 passporteye>=2.2.0
 easyocr>=1.7.0
+paddlepaddle
+paddleocr>=2.7.0
