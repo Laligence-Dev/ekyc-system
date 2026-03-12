@@ -19,16 +19,11 @@
             <div class="step-connector"></div>
             <div class="step" data-step="2">
                 <div class="step-number">2</div>
-                <div class="step-label">Liveness</div>
+                <div class="step-label">Verify</div>
             </div>
             <div class="step-connector"></div>
             <div class="step" data-step="3">
                 <div class="step-number">3</div>
-                <div class="step-label">Verify</div>
-            </div>
-            <div class="step-connector"></div>
-            <div class="step" data-step="4">
-                <div class="step-number">4</div>
                 <div class="step-label">Result</div>
             </div>
         </div>
@@ -71,44 +66,7 @@
             <div id="upload-error" class="error-message hidden"></div>
         </section>
 
-        <!-- Step 2: Active Liveness Challenge -->
-        <section id="step-liveness" class="step-section hidden">
-            <h2>Liveness Check</h2>
-            <p class="subtitle">Follow the instruction below to prove you are a real person.</p>
-
-            <div class="camera-wrapper">
-                <div class="camera-container">
-                    <video id="webcam-liveness" autoplay playsinline muted></video>
-                    <canvas id="liveness-canvas"></canvas>
-                    <div class="camera-overlay">
-                        <div id="face-guide-liveness" class="face-guide"></div>
-                    </div>
-                    <div id="liveness-status-bar" class="status-bar">
-                        <span id="liveness-dot" class="status-dot scanning"></span>
-                        <span id="liveness-status-text">Starting camera...</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Challenge instruction box -->
-            <div id="challenge-box" class="challenge-box hidden">
-                <div class="challenge-icon" id="challenge-icon">👁</div>
-                <div class="challenge-content">
-                    <div class="challenge-label">Follow this instruction:</div>
-                    <div class="challenge-instruction" id="challenge-instruction">—</div>
-                </div>
-            </div>
-
-            <!-- Challenge passed banner -->
-            <div id="challenge-passed-banner" class="challenge-passed hidden">
-                <span class="challenge-passed-icon">✓</span>
-                Liveness verified! Proceeding to selfie...
-            </div>
-
-            <div id="liveness-error" class="error-message hidden"></div>
-        </section>
-
-        <!-- Step 3: Camera Verification -->
+        <!-- Step 2: Camera Verification -->
         <section id="step-camera" class="step-section hidden">
             <h2>Take Your Selfie</h2>
             <p class="subtitle">Position your face within the guide, then take a selfie.</p>
@@ -134,7 +92,7 @@
             <div id="camera-error" class="error-message hidden"></div>
         </section>
 
-        <!-- Step 4: Result -->
+        <!-- Step 3: Result -->
         <section id="step-result" class="step-section hidden">
             <!-- Success -->
             <div id="result-success" class="result-card success hidden">
@@ -165,8 +123,6 @@
         </section>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="/js/app.js"></script>
 </body>
 </html>
