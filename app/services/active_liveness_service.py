@@ -1,44 +1,62 @@
 """
 Active Liveness Detection Service
 ===================================
-Uses MediaPipe Face Mesh (468 landmarks) to detect challenge actions:
+Uses MediaPipe Face Landmarker (Tasks API, v0.10+) with blendshapes for
+reliable challenge detection — no manual geometry needed.
 
-  blink       — Eye Aspect Ratio drops below threshold (eyes closed)
-  open_mouth  — Mouth Aspect Ratio exceeds threshold (mouth open)
-  turn_left   — Nose deviates to the left relative to eye midpoint
-  turn_right  — Nose deviates to the right relative to eye midpoint
+Blendshapes used:
+  blink       — eyeBlinkLeft + eyeBlinkRight  > BLINK_THRESHOLD
+  open_mouth  — jawOpen                        > JAW_THRESHOLD
+  turn_left   — face yaw from transformation matrix > YAW_THRESHOLD
+  turn_right  — face yaw from transformation matrix < -YAW_THRESHOLD
+
+Model is downloaded automatically on first use (~3 MB).
 """
 
 import io
+import math
+import urllib.request
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
+# ── Model download ────────────────────────────────────────────────────────────
+
+_MODEL_DIR  = Path(__file__).resolve().parent.parent.parent / "models" / "face_landmarker"
+_MODEL_PATH = _MODEL_DIR / "face_landmarker.task"
+_MODEL_URL  = (
+    "https://storage.googleapis.com/mediapipe-models/"
+    "face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+)
+
+
+def _ensure_model() -> Path:
+    _MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    if not _MODEL_PATH.exists():
+        print("Downloading MediaPipe face landmarker model (~3 MB) …")
+        urllib.request.urlretrieve(_MODEL_URL, str(_MODEL_PATH))
+        print(f"Downloaded → {_MODEL_PATH}")
+    return _MODEL_PATH
+
+
+# ── Mediapipe import ──────────────────────────────────────────────────────────
+
 try:
     import mediapipe as mp
+    from mediapipe.tasks.python import vision as mp_vision
+    from mediapipe.tasks import python as mp_python
     _MP_AVAILABLE = True
-    _face_mesh_module = mp.solutions.face_mesh
-except ImportError:
+except Exception:
     _MP_AVAILABLE = False
-
-# ── Landmark indices ──────────────────────────────────────────────────────────
-
-_LEFT_EYE  = [33, 160, 158, 133, 153, 144]
-_RIGHT_EYE = [362, 385, 387, 263, 373, 380]
-_MOUTH_TOP = 13    # inner upper lip
-_MOUTH_BOT = 14    # inner lower lip
-_MOUTH_L   = 78    # left corner
-_MOUTH_R   = 308   # right corner
-_NOSE_TIP  = 4
-_L_EYE_OUT = 33
-_R_EYE_OUT = 263
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
 
-EAR_CLOSED     = 0.20   # EAR below this = eyes closed
-MAR_OPEN       = 0.40   # MAR above this = mouth open
-TURN_THRESHOLD = 0.07   # nose deviation ratio to eye distance
-REQUIRED_FRAMES = 2     # consecutive frames with action detected to pass
+BLINK_THRESHOLD  = 0.35   # blendshape score (0-1)
+JAW_THRESHOLD    = 0.35   # blendshape score (0-1)
+YAW_THRESHOLD    = 18.0   # degrees
+
+REQUIRED_FRAMES  = 2      # consecutive detections needed to pass
 
 # ── Challenge definitions ─────────────────────────────────────────────────────
 
@@ -49,38 +67,25 @@ CHALLENGES = {
     "turn_right":  "Slowly turn your head to the RIGHT",
 }
 
-# ── Geometry helpers ──────────────────────────────────────────────────────────
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _get_blendshape(blendshapes, name: str) -> float:
+    for b in blendshapes:
+        if b.category_name == name:
+            return b.score
+    return 0.0
 
 
-def _d(p1, p2) -> float:
-    return float(np.linalg.norm(np.array(p1) - np.array(p2)))
-
-
-def _pt(lm, idx, w, h):
-    return (lm[idx].x * w, lm[idx].y * h)
-
-
-def _ear(lm, eye_idx, w, h) -> float:
-    p = [_pt(lm, i, w, h) for i in eye_idx]
-    return (_d(p[1], p[5]) + _d(p[2], p[4])) / (2.0 * _d(p[0], p[3]) + 1e-6)
-
-
-def _mar(lm, w, h) -> float:
-    v = _d(_pt(lm, _MOUTH_TOP, w, h), _pt(lm, _MOUTH_BOT, w, h))
-    h_ = _d(_pt(lm, _MOUTH_L, w, h),  _pt(lm, _MOUTH_R, w, h))
-    return v / (h_ + 1e-6)
-
-
-def _nose_dev(lm) -> float:
-    """Nose x deviation relative to eye midpoint, normalised by eye span.
-    Positive  → nose is to the right in the image  (user turns their LEFT).
-    Negative  → nose is to the left  in the image  (user turns their RIGHT).
+def _yaw_from_matrix(matrix) -> float:
+    """Extract yaw angle (degrees) from a 4×4 facial transformation matrix.
+    Positive yaw = face turned to the user's LEFT (nose right in image).
+    Negative yaw = face turned to the user's RIGHT (nose left in image).
     """
-    le_x = lm[_L_EYE_OUT].x
-    re_x = lm[_R_EYE_OUT].x
-    mid_x = (le_x + re_x) / 2
-    span = abs(re_x - le_x) + 1e-6
-    return (lm[_NOSE_TIP].x - mid_x) / span
+    m = np.array(matrix.data).reshape(4, 4)
+    R = m[:3, :3]
+    yaw = math.degrees(math.atan2(R[0, 2], R[2, 2]))
+    return yaw
 
 
 # ── Detector ──────────────────────────────────────────────────────────────────
@@ -88,17 +93,29 @@ def _nose_dev(lm) -> float:
 
 class ActiveLivenessDetector:
     def __init__(self) -> None:
-        self._mesh = None
+        self._detector = None
 
-    def _get_mesh(self):
-        if self._mesh is None and _MP_AVAILABLE:
-            self._mesh = _face_mesh_module.FaceMesh(
-                static_image_mode=True,
-                max_num_faces=1,
-                refine_landmarks=True,
-                min_detection_confidence=0.5,
+    def _get_detector(self):
+        if self._detector is not None:
+            return self._detector
+        if not _MP_AVAILABLE:
+            return None
+        try:
+            model_path = _ensure_model()
+            base_options = mp_python.BaseOptions(model_asset_path=str(model_path))
+            options = mp_vision.FaceLandmarkerOptions(
+                base_options=base_options,
+                output_face_blendshapes=True,
+                output_facial_transformation_matrixes=True,
+                num_faces=1,
+                min_face_detection_confidence=0.5,
+                min_face_presence_confidence=0.5,
             )
-        return self._mesh
+            self._detector = mp_vision.FaceLandmarker.create_from_options(options)
+            print("Active liveness detector loaded (MediaPipe Face Landmarker)")
+        except Exception as e:
+            print(f"[ActiveLiveness] Failed to load detector: {e}")
+        return self._detector
 
     def detect(self, image_bytes: bytes, challenge: str) -> dict:
         """Analyse a single frame for the given challenge action.
@@ -106,56 +123,66 @@ class ActiveLivenessDetector:
         Returns:
             face_detected   bool
             action_detected bool
-            value           float   (EAR / MAR / deviation — for debugging)
+            value           float   (blendshape score or yaw angle)
             message         str
         """
-        if not _MP_AVAILABLE:
-            return {"face_detected": True, "action_detected": True, "value": 0.0, "message": "ok (mediapipe unavailable)"}
-
-        mesh = self._get_mesh()
+        detector = self._get_detector()
+        if detector is None:
+            return {"face_detected": True, "action_detected": True, "value": 0.0,
+                    "message": "ok (mediapipe unavailable — auto-pass)"}
 
         try:
             img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            frame = np.array(img)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
         except Exception:
             return {"face_detected": False, "action_detected": False, "value": 0.0, "message": "Invalid image"}
 
-        frame = np.array(img)
-        h, w = frame.shape[:2]
+        result = detector.detect(mp_image)
 
-        results = mesh.process(frame)
-        if not results.multi_face_landmarks:
+        if not result.face_landmarks:
             return {"face_detected": False, "action_detected": False, "value": 0.0, "message": "No face detected"}
 
-        lm = results.multi_face_landmarks[0].landmark
+        blendshapes = result.face_blendshapes[0] if result.face_blendshapes else []
+        matrices    = result.facial_transformation_matrixes
 
+        # ── Blink ──
         if challenge == "blink":
-            avg_ear = (_ear(lm, _LEFT_EYE, w, h) + _ear(lm, _RIGHT_EYE, w, h)) / 2
-            detected = avg_ear < EAR_CLOSED
+            left  = _get_blendshape(blendshapes, "eyeBlinkLeft")
+            right = _get_blendshape(blendshapes, "eyeBlinkRight")
+            score = (left + right) / 2
+            detected = score > BLINK_THRESHOLD
             return {
                 "face_detected": True,
                 "action_detected": detected,
-                "value": round(avg_ear, 4),
-                "message": "Eyes closed ✓" if detected else f"EAR {avg_ear:.3f} — close your eyes more",
+                "value": round(score, 4),
+                "message": "Eyes closed ✓" if detected else f"Score {score:.2f} — close your eyes more",
             }
 
+        # ── Open mouth ──
         if challenge == "open_mouth":
-            mar = _mar(lm, w, h)
-            detected = mar > MAR_OPEN
+            score = _get_blendshape(blendshapes, "jawOpen")
+            detected = score > JAW_THRESHOLD
             return {
                 "face_detected": True,
                 "action_detected": detected,
-                "value": round(mar, 4),
-                "message": "Mouth open ✓" if detected else f"MAR {mar:.3f} — open wider",
+                "value": round(score, 4),
+                "message": "Mouth open ✓" if detected else f"Score {score:.2f} — open wider",
             }
 
+        # ── Head turn ──
         if challenge in ("turn_left", "turn_right"):
-            dev = _nose_dev(lm)
-            detected = (dev > TURN_THRESHOLD) if challenge == "turn_left" else (dev < -TURN_THRESHOLD)
+            if not matrices:
+                return {"face_detected": True, "action_detected": False, "value": 0.0,
+                        "message": "Could not estimate head pose"}
+            yaw = _yaw_from_matrix(matrices[0])
+            detected = (yaw > YAW_THRESHOLD) if challenge == "turn_left" else (yaw < -YAW_THRESHOLD)
+            direction = "left" if challenge == "turn_left" else "right"
             return {
                 "face_detected": True,
                 "action_detected": detected,
-                "value": round(dev, 4),
-                "message": "Head turn detected ✓" if detected else f"deviation {dev:.3f} — turn more",
+                "value": round(yaw, 2),
+                "message": f"Head turn detected ✓" if detected else f"Yaw {yaw:.1f}° — turn more to the {direction}",
             }
 
         return {"face_detected": True, "action_detected": False, "value": 0.0, "message": "Unknown challenge"}
