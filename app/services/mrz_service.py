@@ -12,6 +12,36 @@ Returns parsed fields and validates:
 import io
 from datetime import date, datetime
 
+from PIL import Image, ImageEnhance, ImageFilter
+
+
+def _preprocess_for_mrz(image_bytes: bytes) -> bytes:
+    """
+    Upscale, sharpen and increase contrast so Tesseract reads MRZ characters
+    more accurately. Returns preprocessed JPEG bytes.
+    """
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+
+    # Upscale to at least 1800px wide — MRZ lines need high resolution
+    min_width = 1800
+    if img.width < min_width:
+        scale = min_width / img.width
+        img = img.resize(
+            (int(img.width * scale), int(img.height * scale)),
+            Image.LANCZOS,
+        )
+
+    # Sharpen twice for crisp character edges
+    img = img.filter(ImageFilter.SHARPEN)
+    img = img.filter(ImageFilter.SHARPEN)
+
+    # Boost contrast so dark MRZ text separates clearly from background
+    img = ImageEnhance.Contrast(img).enhance(1.8)
+
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=95)
+    return out.getvalue()
+
 
 def _parse_date(yymmdd: str) -> date | None:
     """Parse YYMMDD MRZ date string into a date object."""
@@ -52,10 +82,20 @@ def extract_mrz(image_bytes: bytes) -> dict:
     except ImportError:
         return {"found": False, "error": "passporteye not installed"}
 
+    # Try preprocessed image first (better OCR accuracy), fall back to original
     try:
-        mrz = read_mrz(io.BytesIO(image_bytes))
-    except Exception as e:
-        return {"found": False, "error": f"MRZ read error: {e}"}
+        enhanced = _preprocess_for_mrz(image_bytes)
+    except Exception:
+        enhanced = image_bytes
+
+    mrz = None
+    for attempt in (enhanced, image_bytes):
+        try:
+            mrz = read_mrz(io.BytesIO(attempt))
+        except Exception as e:
+            return {"found": False, "error": f"MRZ read error: {e}"}
+        if mrz is not None:
+            break
 
     if mrz is None:
         return {"found": False, "error": "No MRZ detected in the document image"}

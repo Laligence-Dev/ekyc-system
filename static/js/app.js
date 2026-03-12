@@ -110,6 +110,7 @@ btnUpload.addEventListener("click", async () => {
         if (!res.ok) throw new Error(data.detail || "Upload failed.");
         state.sessionId = data.session_id;
         state.mrz = data.mrz || null;
+        console.log("[MRZ]", JSON.stringify(state.mrz, null, 2));
         goToStep(2);
     } catch (err) {
         showError(uploadError, err.message);
@@ -123,9 +124,7 @@ btnUpload.addEventListener("click", async () => {
 // ===== MRZ Display =====
 
 function renderMrz(mrz) {
-    const card = $("#mrz-card");
-    // Always show the card so the user can see what passporteye read
-    card.classList.remove("hidden");
+    console.log("[renderMrz]", mrz);
 
     if (!mrz || !mrz.found) {
         $("#mrz-not-found").classList.remove("hidden");
