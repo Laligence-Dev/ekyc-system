@@ -124,42 +124,45 @@ btnUpload.addEventListener("click", async () => {
 
 function renderMrz(mrz) {
     const card = $("#mrz-card");
-    if (!mrz) return;
+    // Always show the card so the user can see what passporteye read
     card.classList.remove("hidden");
 
-    if (!mrz.found) {
+    if (!mrz || !mrz.found) {
         $("#mrz-not-found").classList.remove("hidden");
-        $("#mrz-fields").classList.add("hidden");
+        $("#mrz-fields").innerHTML = "";
+        $("#mrz-validity").textContent = "";
         return;
     }
+
+    $("#mrz-not-found").classList.add("hidden");
 
     // Validity label
     const validityEl = $("#mrz-validity");
     if (mrz.valid) {
-        validityEl.textContent = "Check digits valid";
+        validityEl.textContent = "Check digits valid ✓";
         validityEl.className = "mrz-validity valid";
     } else {
         validityEl.textContent = "Check digit mismatch";
         validityEl.className = "mrz-validity invalid";
     }
 
-    // Build fields
+    // All possible fields — show even if empty so you can spot what's missing
     const fields = [
-        { label: "Surname",          value: mrz.surname,         full: false },
-        { label: "Given Names",      value: mrz.given_names,     full: false },
-        { label: "Document Number",  value: mrz.document_number, full: false },
-        { label: "Nationality",      value: mrz.nationality,     full: false },
-        { label: "Date of Birth",    value: mrz.date_of_birth,   full: false },
-        { label: "Expiry Date",      value: mrz.expiry_date,     full: false },
-        { label: "Sex",              value: mrz.sex,             full: false },
-        { label: "Document Type",    value: mrz.document_type,   full: false },
-    ].filter(f => f.value);
+        { label: "Surname",          value: mrz.surname         },
+        { label: "Given Names",      value: mrz.given_names     },
+        { label: "Document Type",    value: mrz.document_type   },
+        { label: "Country",          value: mrz.country         },
+        { label: "Document Number",  value: mrz.document_number },
+        { label: "Nationality",      value: mrz.nationality     },
+        { label: "Date of Birth",    value: mrz.date_of_birth   },
+        { label: "Expiry Date",      value: mrz.expiry_date     },
+        { label: "Sex",              value: mrz.sex             },
+    ];
 
-    const container = $("#mrz-fields");
-    container.innerHTML = fields.map(f => `
-        <div class="mrz-field${f.full ? " full-width" : ""}">
+    $("#mrz-fields").innerHTML = fields.map(f => `
+        <div class="mrz-field">
             <span class="mrz-field-label">${f.label}</span>
-            <span class="mrz-field-value">${f.value}</span>
+            <span class="mrz-field-value">${f.value || '<span style="color:#475569">—</span>'}</span>
         </div>
     `).join("");
 }
@@ -267,6 +270,7 @@ function showFailureResult(message) {
     $("#result-success").classList.add("hidden");
     $("#result-failure").classList.remove("hidden");
     $("#failure-message").textContent = message;
+    renderMrz(state.mrz);
 }
 
 $("#btn-retry").addEventListener("click", () => location.reload());
