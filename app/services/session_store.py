@@ -24,8 +24,39 @@ class SessionStore:
                 "encoding": encoding,
                 "face_count": face_count,
                 "created_at": time.time(),
+                "challenge": None,
+                "challenge_passed": False,
+                "challenge_frames_ok": 0,
             }
         return session_id
+
+    def assign_challenge(self, session_id: str, challenge: str) -> bool:
+        with self._lock:
+            if session_id not in self._sessions:
+                return False
+            self._sessions[session_id]["challenge"] = challenge
+            self._sessions[session_id]["challenge_passed"] = False
+            self._sessions[session_id]["challenge_frames_ok"] = 0
+            return True
+
+    def increment_challenge_frames(self, session_id: str) -> int:
+        with self._lock:
+            if session_id not in self._sessions:
+                return 0
+            self._sessions[session_id]["challenge_frames_ok"] += 1
+            return self._sessions[session_id]["challenge_frames_ok"]
+
+    def reset_challenge_frames(self, session_id: str) -> None:
+        with self._lock:
+            if session_id in self._sessions:
+                self._sessions[session_id]["challenge_frames_ok"] = 0
+
+    def mark_challenge_passed(self, session_id: str) -> bool:
+        with self._lock:
+            if session_id not in self._sessions:
+                return False
+            self._sessions[session_id]["challenge_passed"] = True
+            return True
 
     def get_session(self, session_id: str) -> Optional[dict]:
         with self._lock:

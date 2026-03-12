@@ -545,6 +545,59 @@ body {
     color: #e2e8f0;
 }
 
+/* ===== Active Liveness Challenge ===== */
+.challenge-box {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1.25rem;
+    padding: 1rem 1.25rem;
+    background: #1e293b;
+    border: 2px solid #3b82f6;
+    border-radius: 14px;
+    animation: fadeIn 0.4s ease;
+}
+
+.challenge-icon {
+    font-size: 2rem;
+    flex-shrink: 0;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+.challenge-label {
+    font-size: 0.75rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+}
+
+.challenge-instruction {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #f1f5f9;
+}
+
+.challenge-passed {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+    padding: 1rem;
+    background: rgba(34, 197, 94, 0.1);
+    border: 2px solid #22c55e;
+    border-radius: 14px;
+    color: #22c55e;
+    font-weight: 600;
+    font-size: 1rem;
+    animation: fadeIn 0.4s ease;
+}
+
+.challenge-passed-icon {
+    font-size: 1.25rem;
+}
+
 /* ===== Utilities ===== */
 .hidden {
     display: none !important;

@@ -55,6 +55,12 @@ async def verify_frame(
             detail="Session not found or expired. Please re-upload the document.",
         )
 
+    if not session.get("challenge_passed"):
+        raise HTTPException(
+            status_code=403,
+            detail="Active liveness challenge not completed. Please complete the challenge first.",
+        )
+
     frame_bytes = await frame.read()
 
     error = validate_image(frame.content_type, len(frame_bytes))

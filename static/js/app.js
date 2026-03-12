@@ -4,27 +4,39 @@ const state = {
     sessionId: null,
     selectedFile: null,
     stream: null,
+    livenessStream: null,
+    challengeInterval: null,
 };
 
 // ===== DOM Helpers =====
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
-const dropZone = $("#drop-zone");
-const fileInput = $("#file-input");
+const dropZone         = $("#drop-zone");
+const fileInput        = $("#file-input");
 const previewContainer = $("#preview-container");
-const docPreview = $("#doc-preview");
-const btnUpload = $("#btn-upload");
-const btnText = btnUpload.querySelector(".btn-text");
-const btnLoader = btnUpload.querySelector(".btn-loader");
-const uploadError = $("#upload-error");
+const docPreview       = $("#doc-preview");
+const btnUpload        = $("#btn-upload");
+const btnText          = btnUpload.querySelector(".btn-text");
+const btnLoader        = btnUpload.querySelector(".btn-loader");
+const uploadError      = $("#upload-error");
 
-const webcam = $("#webcam");
+const webcam        = $("#webcam");
 const captureCanvas = $("#capture-canvas");
-const statusDot = $("#status-dot");
-const statusText = $("#status-text");
-const btnCapture = $("#btn-capture");
-const cameraError = $("#camera-error");
+const statusDot     = $("#status-dot");
+const statusText    = $("#status-text");
+const btnCapture    = $("#btn-capture");
+const cameraError   = $("#camera-error");
+
+const webcamLiveness    = $("#webcam-liveness");
+const livenessCanvas    = $("#liveness-canvas");
+const livenessDot       = $("#liveness-dot");
+const livenessStatusTxt = $("#liveness-status-text");
+const challengeBox      = $("#challenge-box");
+const challengeIcon     = $("#challenge-icon");
+const challengeInstr    = $("#challenge-instruction");
+const challengePassed   = $("#challenge-passed-banner");
+const livenessError     = $("#liveness-error");
 
 // ===== Step Navigation =====
 function goToStep(step) {
@@ -36,48 +48,35 @@ function goToStep(step) {
         el.classList.toggle("completed", s < step);
     });
 
-    const connectors = $$(".step-connector");
-    connectors.forEach((c, i) => {
+    $$(".step-connector").forEach((c, i) => {
         c.classList.toggle("active", i + 1 < step);
     });
 
-    const sections = ["step-upload", "step-camera", "step-result"];
+    const sections = ["step-upload", "step-liveness", "step-camera", "step-result"];
     sections.forEach((id, i) => {
         const el = $(`#${id}`);
-        el.classList.toggle("active", i === step - 1);
-        el.classList.toggle("hidden", i !== step - 1);
+        el.classList.toggle("active",  i === step - 1);
+        el.classList.toggle("hidden",  i !== step - 1);
     });
 
-    if (step === 2) {
-        startCamera();
-    }
+    if (step === 2) startLivenessCamera();
+    if (step === 3) startCamera();
 }
 
 // ===== Step 1: Document Upload =====
 
 dropZone.addEventListener("click", () => fileInput.click());
-
-dropZone.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    dropZone.classList.add("drag-over");
-});
-dropZone.addEventListener("dragleave", () => {
-    dropZone.classList.remove("drag-over");
-});
+dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("drag-over"); });
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
 dropZone.addEventListener("drop", (e) => {
     e.preventDefault();
     dropZone.classList.remove("drag-over");
-    const file = e.dataTransfer.files[0];
-    if (file) handleFileSelected(file);
+    if (e.dataTransfer.files[0]) handleFileSelected(e.dataTransfer.files[0]);
 });
-
-fileInput.addEventListener("change", (e) => {
-    if (e.target.files[0]) handleFileSelected(e.target.files[0]);
-});
+fileInput.addEventListener("change", (e) => { if (e.target.files[0]) handleFileSelected(e.target.files[0]); });
 
 function handleFileSelected(file) {
     hideError(uploadError);
-
     if (!["image/jpeg", "image/png"].includes(file.type)) {
         showError(uploadError, "Please select a JPEG or PNG image.");
         return;
@@ -86,9 +85,7 @@ function handleFileSelected(file) {
         showError(uploadError, "File is too large. Maximum size is 10MB.");
         return;
     }
-
     state.selectedFile = file;
-
     const reader = new FileReader();
     reader.onload = (e) => {
         docPreview.src = e.target.result;
@@ -112,7 +109,6 @@ $("#remove-doc").addEventListener("click", () => {
 btnUpload.addEventListener("click", async () => {
     if (!state.selectedFile) return;
     hideError(uploadError);
-
     btnUpload.disabled = true;
     btnText.textContent = "Processing...";
     btnLoader.classList.remove("hidden");
@@ -121,16 +117,9 @@ btnUpload.addEventListener("click", async () => {
     formData.append("document", state.selectedFile);
 
     try {
-        const res = await fetch("/api/document/upload", {
-            method: "POST",
-            body: formData,
-        });
+        const res  = await fetch("/api/document/upload", { method: "POST", body: formData });
         const data = await res.json();
-
-        if (!res.ok) {
-            throw new Error(data.detail || "Upload failed.");
-        }
-
+        if (!res.ok) throw new Error(data.detail || "Upload failed.");
         state.sessionId = data.session_id;
         goToStep(2);
     } catch (err) {
@@ -142,110 +131,181 @@ btnUpload.addEventListener("click", async () => {
     }
 });
 
-// ===== Step 2: Camera + Take Selfie =====
+// ===== Step 2: Active Liveness Challenge =====
+
+const CHALLENGE_ICONS = {
+    blink:       "👁",
+    open_mouth:  "👄",
+    turn_left:   "⬅️",
+    turn_right:  "➡️",
+};
+
+async function startLivenessCamera() {
+    updateLiveness("Starting camera...", "scanning");
+    try {
+        state.livenessStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+        });
+        webcamLiveness.srcObject = state.livenessStream;
+        await webcamLiveness.play();
+        await fetchChallenge();
+    } catch (err) {
+        updateLiveness("Camera access denied.", "error");
+    }
+}
+
+async function fetchChallenge() {
+    try {
+        const res  = await fetch(`/api/liveness/challenge?session_id=${state.sessionId}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Failed to get challenge.");
+
+        if (data.passed) {
+            onChallengePassed();
+            return;
+        }
+
+        challengeBox.classList.remove("hidden");
+        challengeIcon.textContent = CHALLENGE_ICONS[data.challenge] || "🤔";
+        challengeInstr.textContent = data.instruction;
+        updateLiveness("Follow the instruction above", "scanning");
+
+        // Poll every 600ms
+        state.challengeInterval = setInterval(() => sendChallengeFrame(data.challenge), 600);
+    } catch (err) {
+        showError(livenessError, err.message);
+    }
+}
+
+async function sendChallengeFrame() {
+    if (!webcamLiveness.videoWidth) return;
+
+    const canvas = livenessCanvas;
+    canvas.width  = webcamLiveness.videoWidth;
+    canvas.height = webcamLiveness.videoHeight;
+    canvas.getContext("2d").drawImage(webcamLiveness, 0, 0);
+
+    const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.8));
+    if (!blob) return;
+
+    const formData = new FormData();
+    formData.append("frame", blob, "frame.jpg");
+    formData.append("session_id", state.sessionId);
+
+    try {
+        const res  = await fetch("/api/liveness/check", { method: "POST", body: formData });
+        const data = await res.json();
+
+        if (data.passed) {
+            clearInterval(state.challengeInterval);
+            onChallengePassed();
+            return;
+        }
+
+        if (!data.face_detected) {
+            updateLiveness("Position your face in the circle", "scanning");
+            $("#face-guide-liveness").classList.remove("detected");
+        } else {
+            $("#face-guide-liveness").classList.add("detected");
+            updateLiveness(data.message || "Follow the instruction", "scanning");
+        }
+    } catch (_) {}
+}
+
+function onChallengePassed() {
+    clearInterval(state.challengeInterval);
+    challengeBox.classList.add("hidden");
+    challengePassed.classList.remove("hidden");
+    updateLiveness("Liveness verified!", "matched");
+    stopLivenessCamera();
+
+    setTimeout(() => goToStep(3), 1500);
+}
+
+function stopLivenessCamera() {
+    if (state.livenessStream) {
+        state.livenessStream.getTracks().forEach((t) => t.stop());
+        state.livenessStream = null;
+    }
+}
+
+function updateLiveness(text, type) {
+    livenessStatusTxt.textContent = text;
+    livenessDot.className = `status-dot ${type}`;
+}
+
+// ===== Step 3: Camera + Take Selfie =====
 
 async function startCamera() {
     updateStatus("Initializing camera...", "scanning");
     btnCapture.disabled = true;
-
     try {
         state.stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                facingMode: "user",
-                width: { ideal: 640 },
-                height: { ideal: 480 },
-            },
+            video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
         });
-
         webcam.srcObject = state.stream;
         await webcam.play();
-
-        updateStatus("Ready \u2014 click the button to take a selfie", "detected");
+        updateStatus("Ready — click the button to take a selfie", "detected");
         btnCapture.disabled = false;
     } catch (err) {
-        console.error("Camera error:", err);
         updateStatus("Camera access denied. Please allow camera permission.", "error");
     }
 }
 
-// Take Selfie button
 btnCapture.addEventListener("click", async () => {
     hideError(cameraError);
     btnCapture.disabled = true;
-
-    const captureText = $(".btn-capture-text");
-    const captureCircle = $(".capture-circle");
-    captureText.textContent = "Verifying...";
-    captureCircle.classList.add("hidden");
-
+    $(".btn-capture-text").textContent = "Verifying...";
+    $(".capture-circle").classList.add("hidden");
     updateStatus("Capturing & verifying...", "scanning");
 
     try {
         const canvas = captureCanvas;
         const ctx = canvas.getContext("2d");
-
-        canvas.width = webcam.videoWidth;
+        canvas.width  = webcam.videoWidth;
         canvas.height = webcam.videoHeight;
-
-        if (canvas.width === 0 || canvas.height === 0) {
-            throw new Error("Camera not ready. Please wait a moment and try again.");
-        }
-
+        if (canvas.width === 0) throw new Error("Camera not ready. Please wait and try again.");
         ctx.drawImage(webcam, 0, 0);
 
-        const blob = await new Promise((resolve) =>
-            canvas.toBlob(resolve, "image/jpeg", 0.8)
-        );
-
-        if (!blob) {
-            throw new Error("Failed to capture image.");
-        }
+        const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.8));
+        if (!blob) throw new Error("Failed to capture image.");
 
         const formData = new FormData();
         formData.append("frame", blob, "frame.jpg");
         formData.append("session_id", state.sessionId);
 
-        const res = await fetch("/api/verify/frame", {
-            method: "POST",
-            body: formData,
-        });
+        const res  = await fetch("/api/verify/frame", { method: "POST", body: formData });
         const data = await res.json();
 
         if (!res.ok) {
-            if (res.status === 404) {
-                throw new Error("Session expired. Please start over.");
-            }
+            if (res.status === 404) throw new Error("Session expired. Please start over.");
             throw new Error(data.detail || "Verification failed.");
         }
 
         if (!data.face_detected) {
             showError(cameraError, "No face detected. Make sure your face is clearly visible and try again.");
-            updateStatus("Ready \u2014 click the button to take a selfie", "detected");
+            updateStatus("Ready — click the button to take a selfie", "detected");
             btnCapture.disabled = false;
         } else if (data.is_live === false) {
             showError(cameraError, "Spoof detected! Please show your real face, not a photo or screen.");
-            updateStatus("Liveness check failed \u2014 try again with your real face", "error");
+            updateStatus("Liveness check failed — try again with your real face", "error");
             btnCapture.disabled = false;
         } else if (data.match) {
-            // SUCCESS
             updateStatus("Match found!", "matched");
             stopCamera();
             showSuccessResult(data.confidence);
         } else {
-            // No match
             const pct = Math.round(data.confidence * 100);
             stopCamera();
-            showFailureResult(
-                `Face does not match the document (${pct}% similarity). Please try again.`
-            );
+            showFailureResult(`Face does not match the document (${pct}% similarity). Please try again.`);
         }
     } catch (err) {
         showError(cameraError, err.message);
-        updateStatus("Ready \u2014 click the button to take a selfie", "detected");
+        updateStatus("Ready — click the button to take a selfie", "detected");
         btnCapture.disabled = false;
     } finally {
-        captureText.textContent = "Take Selfie";
-        captureCircle.classList.remove("hidden");
+        $(".btn-capture-text").textContent = "Take Selfie";
+        $(".capture-circle").classList.remove("hidden");
     }
 });
 
@@ -256,32 +316,29 @@ function updateStatus(text, type) {
 
 function stopCamera() {
     if (state.stream) {
-        state.stream.getTracks().forEach((track) => track.stop());
+        state.stream.getTracks().forEach((t) => t.stop());
         state.stream = null;
     }
 }
 
-// ===== Step 3: Results =====
+// ===== Step 4: Results =====
 
 function showSuccessResult(confidence) {
     const pct = Math.round(confidence * 100);
-    goToStep(3);
+    goToStep(4);
     $("#result-success").classList.remove("hidden");
     $("#result-failure").classList.add("hidden");
     $("#confidence-score").textContent = `${pct}%`;
 }
 
 function showFailureResult(message) {
-    goToStep(3);
+    goToStep(4);
     $("#result-success").classList.add("hidden");
     $("#result-failure").classList.remove("hidden");
     $("#failure-message").textContent = message;
 }
 
-// Retry
-$("#btn-retry").addEventListener("click", () => {
-    location.reload();
-});
+$("#btn-retry").addEventListener("click", () => location.reload());
 
 // ===== Shared Helpers =====
 
@@ -289,7 +346,6 @@ function showError(el, msg) {
     el.textContent = msg;
     el.classList.remove("hidden");
 }
-
 function hideError(el) {
     el.classList.add("hidden");
 }

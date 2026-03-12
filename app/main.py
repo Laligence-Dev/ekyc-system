@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.routes.liveness import router as liveness_router
 from app.routes.session import router as session_router
 from app.routes.verify import router as verify_router
 
@@ -23,6 +24,7 @@ app.add_middleware(
 
 app.include_router(verify_router, prefix="/api")
 app.include_router(session_router, prefix="/api")
+app.include_router(liveness_router, prefix="/api")
 
 
 @app.on_event("startup")
