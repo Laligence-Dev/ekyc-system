@@ -3,6 +3,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from app.services.antispoof_service import liveness_detector
 from app.services.document_auth_service import check_document_authenticity
 from app.services.face_service import compare_faces, extract_face_encoding
+from app.services.mrz_service import extract_mrz
 from app.services.session_store import session_store
 from app.utils.image_utils import load_image_from_bytes, validate_image
 
@@ -33,11 +34,34 @@ async def upload_document(
             detail="No face detected in the document image. Please upload a clearer photo.",
         )
 
+    # MRZ extraction (non-blocking — warn but don't reject if not found)
+    mrz = extract_mrz(doc_bytes)
+
+    # Hard block: document is expired
+    if mrz["found"] and mrz["expired"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Document has expired (expiry date: {mrz['expiry_date']}). Please use a valid document.",
+        )
+
     session_id = session_store.create_session(doc_encoding, doc_face_count)
 
     return {
         "session_id": session_id,
         "document_faces_detected": doc_face_count,
+        "mrz": {
+            "found":           mrz["found"],
+            "surname":         mrz.get("surname", ""),
+            "given_names":     mrz.get("given_names", ""),
+            "document_number": mrz.get("document_number", ""),
+            "nationality":     mrz.get("nationality", ""),
+            "date_of_birth":   mrz.get("date_of_birth", ""),
+            "expiry_date":     mrz.get("expiry_date", ""),
+            "sex":             mrz.get("sex", ""),
+            "document_type":   mrz.get("document_type", ""),
+            "country":         mrz.get("country", ""),
+            "valid":           mrz.get("valid", False),
+        },
         "message": "Document processed successfully. Ready for verification.",
     }
 

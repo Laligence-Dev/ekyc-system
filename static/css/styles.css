@@ -598,6 +598,77 @@ body {
     font-size: 1.25rem;
 }
 
+/* ===== MRZ Card ===== */
+.mrz-card {
+    margin-top: 1.25rem;
+    padding: 1rem 1.25rem;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    animation: fadeIn 0.4s ease;
+}
+
+.mrz-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.875rem;
+}
+
+.mrz-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.25rem 0.625rem;
+    border-radius: 99px;
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.mrz-validity {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #94a3b8;
+}
+
+.mrz-validity.valid   { color: #22c55e; }
+.mrz-validity.invalid { color: #f59e0b; }
+
+.mrz-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem 1rem;
+}
+
+.mrz-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.mrz-field-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #475569;
+}
+
+.mrz-field-value {
+    font-size: 0.875rem;
+    color: #e2e8f0;
+    font-weight: 500;
+}
+
+.mrz-field.full-width {
+    grid-column: 1 / -1;
+}
+
+.mrz-warning {
+    font-size: 0.8rem;
+    color: #f59e0b;
+    margin-top: 0.25rem;
+}
+
 /* ===== Utilities ===== */
 .hidden {
     display: none !important;

@@ -104,6 +104,17 @@
                 </div>
                 <h2>Verification Passed</h2>
                 <p class="result-detail">Identity confirmed with <strong id="confidence-score"></strong> confidence</p>
+
+                <!-- MRZ data extracted from document -->
+                <div id="mrz-card" class="mrz-card hidden">
+                    <div class="mrz-header">
+                        <span id="mrz-badge" class="mrz-badge">Document Data (MRZ)</span>
+                        <span id="mrz-validity" class="mrz-validity"></span>
+                    </div>
+                    <div class="mrz-fields" id="mrz-fields"></div>
+                    <p id="mrz-not-found" class="mrz-warning hidden">No MRZ detected in document.</p>
+                </div>
+
                 <button id="btn-done" class="btn-primary" onclick="location.reload()">Start Over</button>
             </div>
 

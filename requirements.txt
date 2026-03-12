@@ -9,3 +9,4 @@ setuptools<81
 aiofiles==24.1.0
 onnxruntime>=1.19.0
 mediapipe>=0.10.0
+passporteye>=2.2.0

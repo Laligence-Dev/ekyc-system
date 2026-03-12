@@ -4,6 +4,7 @@ const state = {
     sessionId: null,
     selectedFile: null,
     stream: null,
+    mrz: null,
 };
 
 // ===== DOM Helpers =====
@@ -108,6 +109,7 @@ btnUpload.addEventListener("click", async () => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Upload failed.");
         state.sessionId = data.session_id;
+        state.mrz = data.mrz || null;
         goToStep(2);
     } catch (err) {
         showError(uploadError, err.message);
@@ -117,6 +119,50 @@ btnUpload.addEventListener("click", async () => {
         btnLoader.classList.add("hidden");
     }
 });
+
+// ===== MRZ Display =====
+
+function renderMrz(mrz) {
+    const card = $("#mrz-card");
+    if (!mrz) return;
+    card.classList.remove("hidden");
+
+    if (!mrz.found) {
+        $("#mrz-not-found").classList.remove("hidden");
+        $("#mrz-fields").classList.add("hidden");
+        return;
+    }
+
+    // Validity label
+    const validityEl = $("#mrz-validity");
+    if (mrz.valid) {
+        validityEl.textContent = "Check digits valid";
+        validityEl.className = "mrz-validity valid";
+    } else {
+        validityEl.textContent = "Check digit mismatch";
+        validityEl.className = "mrz-validity invalid";
+    }
+
+    // Build fields
+    const fields = [
+        { label: "Surname",          value: mrz.surname,         full: false },
+        { label: "Given Names",      value: mrz.given_names,     full: false },
+        { label: "Document Number",  value: mrz.document_number, full: false },
+        { label: "Nationality",      value: mrz.nationality,     full: false },
+        { label: "Date of Birth",    value: mrz.date_of_birth,   full: false },
+        { label: "Expiry Date",      value: mrz.expiry_date,     full: false },
+        { label: "Sex",              value: mrz.sex,             full: false },
+        { label: "Document Type",    value: mrz.document_type,   full: false },
+    ].filter(f => f.value);
+
+    const container = $("#mrz-fields");
+    container.innerHTML = fields.map(f => `
+        <div class="mrz-field${f.full ? " full-width" : ""}">
+            <span class="mrz-field-label">${f.label}</span>
+            <span class="mrz-field-value">${f.value}</span>
+        </div>
+    `).join("");
+}
 
 // ===== Step 2: Camera + Take Selfie =====
 
@@ -213,6 +259,7 @@ function showSuccessResult(confidence) {
     $("#result-success").classList.remove("hidden");
     $("#result-failure").classList.add("hidden");
     $("#confidence-score").textContent = `${pct}%`;
+    renderMrz(state.mrz);
 }
 
 function showFailureResult(message) {
