@@ -62,11 +62,16 @@ async def verify_faces(
     # Extract and validate MRZ (expiry, document data)
     mrz = extract_mrz(doc_bytes)
     if mrz.get("found"):
-        # Expiry check
+        # Expiry check — also block if expiry_date is unreadable (empty)
         if mrz.get("expired"):
             raise HTTPException(
                 status_code=400,
                 detail="The document has expired. Please provide a valid, unexpired document.",
+            )
+        if not mrz.get("expiry_date"):
+            raise HTTPException(
+                status_code=400,
+                detail="Could not read the document expiry date. Please upload a clearer photo of your document.",
             )
 
         # Document type check — must be passport (P) or ID card (I/A/C)
