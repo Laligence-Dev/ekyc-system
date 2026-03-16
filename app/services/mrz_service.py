@@ -134,7 +134,6 @@ def _get_paddle():
         _paddle_ocr = PaddleOCR(
             use_angle_cls=False,   # MRZ is always horizontal
             lang="en",
-            show_log=False,
         )
         print("PaddleOCR ready.")
     return _paddle_ocr
@@ -154,18 +153,40 @@ def _ocr_mrz_strip(crop: np.ndarray) -> list[str]:
         new_w = int(crop.shape[1] * scale)
         crop = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
 
-    # PaddleOCR expects BGR or RGB; feed grayscale as-is (it handles it)
-    result = ocr.ocr(crop, cls=False)
+    # PaddleOCR v3 requires a 3-channel image
+    if crop.ndim == 2:
+        crop = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
+    result = ocr.ocr(crop)
 
     lines = []
-    if result and result[0]:
-        # Sort by vertical centre
-        items = sorted(result[0], key=lambda r: (r[0][0][1] + r[0][2][1]) / 2)
-        for item in items:
-            text = item[1][0]
-            norm = _normalize(text)
-            if norm:
-                lines.append(norm)
+    try:
+        for page in (result or []):
+            if page is None:
+                continue
+            # v3.x: paddlex OCRResult — dict-style access
+            try:
+                rec_texts = page['rec_texts']
+                rec_polys = page['rec_polys']
+                for box, txt in zip(rec_polys, rec_texts):
+                    norm = _normalize(txt)
+                    if norm:
+                        lines.append((int(box[0][1]), norm))
+                continue
+            except (TypeError, KeyError):
+                pass
+            # v2.x: list of [[box], [text, conf]]
+            if isinstance(page, list):
+                for item in page:
+                    if item is None:
+                        continue
+                    box, (txt, _conf) = item[0], item[1]
+                    norm = _normalize(txt)
+                    if norm:
+                        lines.append((int(box[0][1]), norm))
+        lines = [text for _y, text in sorted(lines, key=lambda x: x[0])]
+    except Exception as e:
+        print(f"[MRZ] OCR parse error: {e}")
+        lines = []
 
     print(f"[MRZ] PaddleOCR raw lines: {lines}")
     return lines
@@ -185,6 +206,9 @@ def _parse_td3(lines: list[str]) -> dict | None:
         l1 = _pad(lines[i],     44)
         l2 = _pad(lines[i + 1], 44)
 
+        # OCR often misreads P as O — treat O as P for first character
+        if l1[0] == "O":
+            l1 = "P" + l1[1:]
         if l1[0] not in "PIV":
             continue
 
@@ -285,8 +309,8 @@ def _passporteye_fallback(image_bytes: bytes) -> dict | None:
             "given_names":     _clean(d.get("names", "")),
             "document_number": _fix_numeric(_clean(d.get("number", ""))),
             "nationality":     _clean(d.get("nationality", "")),
-            "date_of_birth":   _fix_numeric(d.get("date_of_birth", "")),
-            "expiry_date":     _fix_numeric(d.get("expiry_date", "")),
+            "date_of_birth":   _fix_numeric(str(d.get("date_of_birth", "") or "")),
+            "expiry_date":     _fix_numeric(str(d.get("expiration_date", "") or "")),
             "sex":             _clean(d.get("sex", "")),
             "valid_score":     1 if d.get("valid_score", 0) >= 50 else 0,
             "valid":           d.get("valid_score", 0) >= 50,
