@@ -2,6 +2,7 @@ from datetime import date
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.services.antispoof_service import liveness_detector
+from app.services.screen_replay_service import screen_replay_detector
 from app.services.document_auth_service import check_document_authenticity
 from app.services.face_service import compare_faces, extract_face_encoding
 from app.services.mrz_service import extract_mrz
@@ -163,13 +164,39 @@ async def verify_frame(
             "message": "Multiple faces detected. Please ensure only one face is visible.",
         }
 
-    # Liveness check — reject photos/screens
+    # Stage 1: Screen replay heuristic (fast, no ONNX)
+    screen = screen_replay_detector.check(frame_image, face_location, session_id=session_id)
+    if screen["is_screen_attack"]:
+        return {
+            "match": False,
+            "face_detected": True,
+            "is_live": False,
+            "screen_attack": True,
+            "screen_score": screen["screen_score"],
+            "message": "Screen replay attack detected. Please show your real face to the camera.",
+        }
+
+    # Stage 2: MiniFASNet passive liveness
     liveness = liveness_detector.check_liveness(frame_image, face_location)
+
+    # Soft flag: suspicious screen + failed liveness → reject
+    if screen["suspicious"] and not liveness["is_live"]:
+        return {
+            "match": False,
+            "face_detected": True,
+            "is_live": False,
+            "screen_attack": True,
+            "screen_score": screen["screen_score"],
+            "liveness_score": liveness["liveness_score"],
+            "message": "Liveness check failed. Please use a real face, not a photo or screen.",
+        }
+
     if not liveness["is_live"]:
         return {
             "match": False,
             "face_detected": True,
             "is_live": False,
+            "screen_attack": False,
             "liveness_score": liveness["liveness_score"],
             "message": "Liveness check failed. Please use a real face, not a photo or screen.",
         }

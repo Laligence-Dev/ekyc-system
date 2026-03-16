@@ -71,6 +71,7 @@ class SessionStore:
     def delete_session(self, session_id: str) -> None:
         with self._lock:
             self._sessions.pop(session_id, None)
+        self._cleanup_screen_buffer(session_id)
 
     def _cleanup_expired(self) -> None:
         now = time.time()
@@ -82,6 +83,16 @@ class SessionStore:
             ]
             for sid in expired:
                 del self._sessions[sid]
+        for sid in expired:
+            self._cleanup_screen_buffer(sid)
+
+    @staticmethod
+    def _cleanup_screen_buffer(session_id: str) -> None:
+        try:
+            from app.services.screen_replay_service import screen_replay_detector
+            screen_replay_detector.cleanup_session(session_id)
+        except Exception:
+            pass
 
     def _start_cleanup_thread(self) -> None:
         def run() -> None:
