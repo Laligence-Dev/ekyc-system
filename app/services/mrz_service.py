@@ -212,6 +212,11 @@ def _parse_td3(lines: list[str]) -> dict | None:
         if l1[0] not in "PIV":
             continue
 
+        # OCR often drops the '<' filler at position 1 (e.g. 'P<LAO' → 'PLAO')
+        # Detect by checking if pos 1 is a letter — insert '<' to realign fields
+        if l1[1] != "<":
+            l1 = l1[0] + "<" + l1[1:43]
+
         doc_num = _fix_numeric(l2[0:9])
         nat     = l2[10:13]
         dob_raw = _fix_numeric(l2[13:19])
